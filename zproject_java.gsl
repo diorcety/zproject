@@ -756,7 +756,54 @@ implements AutoCloseable\
             System.exit (-1);
         }
     }
+
+.   for callback_type
+    public interface $(class.name:pascal)$(name:pascal) {
+        $(->return.jni_java_type:)\
+        callback ($(jni_method_signature:));
+    }
+
+    private class _$(class.name:pascal)$(name:pascal) {
+        private $(class.name:pascal)$(name:pascal) inner;
+
+        _$(class.name:pascal)$(name:pascal) ($(class.name:pascal)$(name:pascal) inner) {
+            this.inner = inner;
+        }
+
+        $(->return.jni_java_type:)\
+        callback ($(jni_shim_signature_java:)) {
+.       if ->return.type <> "nothing"
+            return\
+.       endif
+            inner.callback($(jni_shim_invocation_java:));
+        }
+    }
+
+.   endfor
+
     public long self;
+.   for constructor where okay
+.       for argument
+.           if callback = 1
+    long $(constructor.name:camel)$(name:pascal)Clb;
+.           endif
+.       endfor
+.   endfor
+.   for method where okay
+.       for argument
+.           if callback = 1
+.               if method.singleton = 1
+    static\
+.               endif
+    long $(method.name:camel)$(name:pascal)Clb \
+.               if method.singleton = 1
+    = 0 \
+.               endif
+    ;
+.           endif
+.       endfor
+.   endfor
+
 .   my.class.jni_void_new = 0
 .   for constructor where okay
     /*
@@ -781,15 +828,15 @@ implements AutoCloseable\
     /*
     $(description:no,block)
     */
-    native static void __$(name:camel) (long self);
+    native static void __$(name:camel) (Object o, long self);
     @Override
     public void close () {
-        __$(name:camel) (self);
+        __$(name:camel) (this, self);
         self = 0;
     }
 .   endfor
 .   for method where okay
-.       if name = "test"
+.       if (name = "test" | singleton = 1) & defined (method.return_self_p) = 0
 .           my.prefix = "public static"
 .       else
 .           my.prefix = "public"
@@ -814,6 +861,178 @@ implements AutoCloseable\
 }
 .endmacro
 
+
+.macro generate_jni_callback_c (callback)
+
+struct $(name)_cb_struct {
+    JavaVM* jvm;
+    int jver;
+    jobject obj;
+    jmethodID mid;
+    void *args;
+};
+
+struct $(name)_cb_struct*
+$(class.name)_$(name)_cb_create(JNIEnv *env, jobject callback, void* args) {
+    struct $(name)_cb_struct *ptr = NULL;
+    if (callback != NULL) {
+        ptr = malloc(sizeof(struct $(name)_cb_struct));
+        (*env)->GetJavaVM(env, &ptr->jvm);
+        ptr->jver = (*env)->GetVersion(env);
+        ptr->obj = (*env)->NewGlobalRef(env, callback);
+        jclass cls = (*env)->GetObjectClass(env, callback);
+        ptr->mid = (*env)->GetMethodID(env, cls, "callback", "$(jni_native_signature_java:)");
+        if (ptr->mid == 0){
+            jclass Exception = (*env)->FindClass(env, "java/lang/Exception");
+            (*env)->ThrowNew(env, Exception, "Can't find callback function.");
+            return NULL;
+        }
+        ptr->args = args;
+    }
+    return ptr;
+}
+
+void
+$(class.name)_$(name)_cb_destroy(JNIEnv *env, struct $(name)_cb_struct* clb) {
+    if (clb != NULL) {
+        (*env)->DeleteGlobalRef(env, clb->obj);
+        free(clb);
+    }
+}
+
+jlong \
+$(class.name)_$(name)_cb_wrap(JNIEnv *env, jclass cls, jobject object, const char* field, jobject callback, void* args) {
+    jfieldID fid;
+    if (object != NULL) {
+        fid = (*env)->GetFieldID(env, cls, field, "J");
+    } else {
+        fid = (*env)->GetStaticFieldID(env, cls, field, "J");
+    }
+    if (fid == 0) {
+        char exception_msg[512];
+        snprintf(exception_msg, sizeof(exception_msg), "Can't find %s field.", field);
+        jclass Exception = (*env)->FindClass(env, "java/lang/Exception");
+        (*env)->ThrowNew(env, Exception, exception_msg);
+        return 0;
+    }
+
+    jlong value;
+    if (object != NULL) {
+        value = (*env)->GetLongField(env, object, fid);
+    } else {
+        value = (*env)->GetStaticLongField(env, cls, fid);
+    }
+    if (value != 0) {
+        $(class.name)_$(name)_cb_destroy(env, (struct $(name)_cb_struct*) (intptr_t) value);
+    }
+    value = (jlong) $(class.name)_$(name)_cb_create(env, callback, args);
+    if (object != NULL) {
+        (*env)->SetLongField(env, object, fid, value);
+    } else {
+        (*env)->SetStaticLongField(env, cls, fid, value);
+    }
+    return value;
+}
+
+$(->return.c_type) \
+.    # TODO: verify that these don't duplicate
+$(class.name)_$(name)_cb_wrapper(\
+.    # This method signature needs to be built on the model's knowledge of
+.    # the function callback type
+.    # Q: Where is that information available?
+$(jni_native_signature_c)\
+) {
+    JNIEnv *env;
+    JavaVM *vm;
+.   for argument
+.       if defined(argument.argument)
+    struct $(my.callback.name)_cb_struct* wrapper = (struct $(my.callback.name)_cb_struct*)$(argument.name);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Invalid callback argument\\n");
+        abort();
+.    if my.callback->return.type <> "nothing"
+        return -1;
+.    else
+        return;
+.    endif
+    }
+    $(argument.name) = wrapper->args;
+.       endif
+.   endfor
+    vm = wrapper->jvm;
+    int err = (*vm)->GetEnv(vm, (void **)&env, wrapper->jver);
+    if (err == JNI_EDETACHED) {
+        err = (*vm)->AttachCurrentThread(vm, (void **)&env, NULL);
+        if (err != JNI_OK) {
+            fprintf(stderr, "Can't attach current thread to the JVM\\n");
+            abort();
+.    if ->return.type <> "nothing"
+            return -1;
+.    else
+            return;
+.    endif
+        }
+    } else if (err != JNI_OK) {
+        fprintf(stderr, "Can't attach current thread to the JVM\\n");
+        abort();
+.    if ->return.type <> "nothing"
+        return -1;
+.    else
+        return;
+.    endif
+    }
+
+.    for argument
+.        if .type = "buffer"
+.            if regexp.match ("^\\.(.*)", size, my.size)
+.                my.size = "$(class.c_name)_$(my.size) (($(class.c_name)_t *) (intptr_t) self)"
+.            else
+.                my.size = size
+.            endif
+         jbyte *$(c_name)_ = (jbyte *) $(class.c_name)_$(c_name) ($(jni_native_invocation_c));
+         jint $(c_name)_size_ = (jint) $(my.size);
+         jbyteArray $(c_name)_data_ = (*env)->NewByteArray (env, $(c_name)_size_);
+         (*env)->SetByteArrayRegion (env, $(c_name)_data_, 0, $(c_name)_size_, (jbyte *) $(c_name)_);
+.        elsif type = "string"
+         char *$(c_name)_ = (char *) $(class.c_name)_$(c_name) ($(jni_native_invocation_c));
+         jstring $(c_name)_string_ = (*env)->NewStringUTF (env, $(c_name)_);
+.        endif
+.    endfor
+
+.    if ->return.type <> "nothing"
+    $(->return.jni_jni_type) ret =\
+.    endif
+    (*env)->Call$(->return.jni_call_fct:)Method(env, wrapper->obj, wrapper->mid\
+.    for argument
+.        if .type = "buffer"
+, $(c_name)_data_\
+.        elsif type = "string"
+, $(c_name)_string_\
+.        elsif jni_is_class = 1 | type = "anything"
+, (jlong) (intptr_t) $(c_name)\
+.        else
+, ($(jni_jni_type:)) $(c_name)\
+.        endif
+.    endfor
+);
+
+    err = (*vm)->DetachCurrentThread(vm);
+    if (err != JNI_OK) {
+        fprintf(stderr, "Can't attach current thread to the JVM\\n"),
+        abort();
+.    if ->return.type <> "nothing"
+        return -1;
+.    else
+        return;
+.    endif
+    }
+
+.    if ->return.type <> "nothing"
+    return ($(->return.c_type)) (intptr_t) ret;
+.    endif
+}
+.endmacro
+
 .macro generate_jni_method_c (method)
 .   if defined (my.method.return_self_p) & !my.method.is_destructor
 JNIEXPORT jlong JNICALL
@@ -826,11 +1045,26 @@ Java_$(namespace:c)_$(class.name:pascal)__1_1$(my.method.name:camel) (JNIEnv *en
 .   endif
 $(jni_shim_signature_c:))
 {
+.
+.   if my.method.is_constructor
+.       for class.method where okay & singleton = 0
+.           for argument where callback = 1
+    $(type)_cb_wrap(env, c, o, "$(method.name:camel)$(name:pascal)Clb", NULL, NULL);
+.           endfor
+.       endfor
+.   endif
+.
 .   for argument
-.       if type = "string" | type = "format"
+.       if defined(callback_argument) & callback <> 1
+.       elsif type = "string" | type = "format"
     char *$(c_name)_ = (char *) (*env)->GetStringUTFChars (env, $(c_name), NULL);
 .       elsif type = "buffer"
     jbyte *$(c_name)_ = (byte *) (*env)->GetByteArrayElements (env, $(c_name), 0);
+.       elsif callback = 1
+    void *$(c_name)_$(type) = $(type)_cb_wrapper;
+.           if defined(callback_argument)
+    $(callback_argument) = (jlong) $(type)_cb_wrap(env, c, o, "$(my.method.name:camel)$(name:pascal)Clb", $(c_name), (void *) (intptr_t) $(callback_argument));
+.           endif
 .       endif
 .   endfor
 .#
@@ -881,6 +1115,20 @@ $(jni_shim_signature_c:))
     (*env)->ReleaseByteArrayElements (env, $(c_name), (jbyte *) $(c_name)_, 0);
 .       endif
 .   endfor
+.
+.   if my.method.is_destructor
+.       for class.method where okay & singleton = 0
+.           for argument where callback = 1
+    $(name)_cb_wrap(env, c, o, "$(method.name:camel)$(name:pascal)Clb", NULL, NULL);
+.           endfor
+.       endfor
+.       for class.constructor where okay
+.           for argument where callback = 1
+    $(name)_cb_wrap(env, c, o, "$(constructor.name:camel)$(name:pascal)Clb", NULL, NULL);
+.           endfor
+.       endfor
+.   endif
+.
 $(my.return)\
 }
 
@@ -899,6 +1147,9 @@ $(project.GENERATED_WARNING_HEADER:)
 #include "$(project.header:)"
 #include "$(my.cname:).h"
 
+.   for callback_type where okay
+.       generate_jni_callback_c (callback_type)
+.   endfor
 .   for constructor where okay
 .       generate_jni_method_c (constructor)
 .   endfor
