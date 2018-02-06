@@ -138,7 +138,8 @@ function resolve_method (method)
     |  my.method.name = "toString" \
     |  my.method.name = "notify" \
     |  my.method.name = "notifyAll" \
-    |  my.method.name = "wait"
+    |  my.method.name = "wait" \
+    |  my.method.name = "interface"
         my.method.jni_name = "$(name:pascal)"   #   Leading capital letter
     else
         my.method.jni_name = "$(name:camel)"
