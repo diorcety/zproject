@@ -54,13 +54,13 @@ ENDIF ($(USE.PROJECT)_FOUND)
 ########################################################################
 # $(PROJECT.PREFIX) dependency
 ########################################################################
-find_package($(project.prefix) REQUIRED)
-IF ($(PROJECT.PREFIX)_FOUND)
-    include_directories(${$(PROJECT.PREFIX)_INCLUDE_DIRS})
-    list(APPEND MORE_LIBRARIES ${$(PROJECT.PREFIX)_LIBRARIES})
-ELSE ($(PROJECT.PREFIX)_FOUND)
-    message( FATAL_ERROR "$(project.prefix) not found." )
-ENDIF ($(PROJECT.PREFIX)_FOUND)
+find_package($(project.name) REQUIRED)
+IF ($(PROJECT.NAME)_FOUND)
+    include_directories(${$(PROJECT.NAME)_INCLUDE_DIRS})
+    list(APPEND MORE_LIBRARIES ${$(PROJECT.NAME)_LIBRARIES})
+ELSE ($(PROJECT.NAME)_FOUND)
+    message( FATAL_ERROR "$(project.name) not found." )
+ENDIF ($(PROJECT.NAME)_FOUND)
 
 set ($(project.prefix)jni_sources
 .for project.class where class.okay
