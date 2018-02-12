@@ -150,6 +150,7 @@ dependencies {
     compile 'org.zeromq:$(use.project)-jni:+'
 .       endif
 .   endfor
+    compile 'com.github.jnr:jffi:+'
     testCompile 'junit:junit:4.12'
     testCompile 'org.hamcrest:hamcrest-all:1.3'
 }
@@ -756,7 +757,60 @@ implements AutoCloseable\
             System.exit (-1);
         }
     }
+
+.   for callback_type where okay
+    public interface $(class.name:pascal)$(name:pascal) {
+        $(->return.jni_java_type:)\
+        callback ($(jni_method_signature:));
+    }
+
+    public static class _$(class.name:pascal)$(name:pascal) implements AutoCloseable, com.kenai.jffi.Closure {
+        private final $(class.name:pascal)$(name:pascal) inner;
+        private final com.kenai.jffi.Closure.Handle handle;
+
+        public _$(class.name:pascal)$(name:pascal) ($(class.name:pascal)$(name:pascal) inner) {
+            this.inner = inner;
+            this.handle = com.kenai.jffi.ClosureManager.getInstance().newClosure(this, $(->return.jni_jffi_type:), new com.kenai.jffi.Type[] {$(jni_jffi_signature:)}, com.kenai.jffi.CallingConvention.DEFAULT);
+            this.handle.setAutoRelease(false);
+        }
+
+        @Override
+        public void close () {
+            handle.dispose();
+        }
+
+        @Override
+        public void invoke(com.kenai.jffi.Closure.Buffer buffer) {
+.       if ->return.type <> "nothing"
+            $(->return.jni_java_type:) ret;
+.       endif
+.       if ->return.type <> "nothing"
+            ret =\
+.       endif
+            inner.callback($(jni_jffi_invocation:));
+.       if ->return.type = "string" | ->return.type = "format"
+            java.nio.ByteBuffer buf = java.nio.charset.Charset.defaultCharset().encode(ret);
+            long memory = com.kenai.jffi.MemoryIO.getInstance().allocateMemory(buf.remaining() + 1, false);
+            com.kenai.jffi.MemoryIO.getInstance().putZeroTerminatedByteArray(memory, buf.array(), buf.arrayOffset() + buf.position(), buf.remaining());
+            buffer.setAddressReturn(memory);
+.       elsif ->return.type <> "nothing"
+            buffer.set$(->return.jni_java_type:pascal)Return(ret);
+.       endif
+        }
+
+        public long getAddress () {
+            return handle.getAddress();
+        }
+    }
+
+    public static _$(class.name:pascal)$(name:pascal) $(class.name)_$(name)($(class.name:pascal)$(name:pascal) inner) {
+        return inner != null ? new _$(class.name:pascal)$(name:pascal)(inner) : null;
+    }
+
+.   endfor
+
     public long self;
+
 .   my.class.jni_void_new = 0
 .   for constructor where okay
     /*
@@ -787,9 +841,10 @@ implements AutoCloseable\
         __$(name:camel) (self);
         self = 0;
     }
+
 .   endfor
 .   for method where okay
-.       if name = "test"
+.       if singleton = 1 & defined (method.return_self_p) = 0
 .           my.prefix = "public static"
 .       else
 .           my.prefix = "public"
@@ -814,6 +869,10 @@ implements AutoCloseable\
 }
 .endmacro
 
+
+.macro generate_jni_callback_c (callback)
+.endmacro
+
 .macro generate_jni_method_c (method)
 .   if defined (my.method.return_self_p) & !my.method.is_destructor
 JNIEXPORT jlong JNICALL
@@ -826,6 +885,7 @@ Java_$(namespace:c)_$(class.name:pascal)__1_1$(my.method.name:camel) (JNIEnv *en
 .   endif
 $(jni_shim_signature_c:))
 {
+.
 .   for argument
 .       if type = "string" | type = "format"
     char *$(c_name)_ = (char *) (*env)->GetStringUTFChars (env, $(c_name), NULL);
@@ -881,6 +941,7 @@ $(jni_shim_signature_c:))
     (*env)->ReleaseByteArrayElements (env, $(c_name), (jbyte *) $(c_name)_, 0);
 .       endif
 .   endfor
+.
 $(my.return)\
 }
 
@@ -899,6 +960,9 @@ $(project.GENERATED_WARNING_HEADER:)
 #include "$(project.header:)"
 #include "$(my.cname:).h"
 
+.   for callback_type where okay
+.       generate_jni_callback_c (callback_type)
+.   endfor
 .   for constructor where okay
 .       generate_jni_method_c (constructor)
 .   endfor

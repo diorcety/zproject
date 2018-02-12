@@ -10,7 +10,7 @@
 #   License, v. 2.0. If a copy of the MPL was not distributed with this
 #   file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-function resolve_container (container)
+function resolve_container (container, entity_type, return_type)
     #   Type of container shown to Java apps
     my.container.jni_java_type = ""
     #   Type of container passed to native code
@@ -21,10 +21,13 @@ function resolve_container (container)
     my.container.jni_is_class = 0
     #   Is the container a self_p reference?
     my.container.jni_self_p = 0
+    #   JFFI type
+    my.container.jni_jffi_type = ""
 
     if my.container.type = "nothing"
         my.container.jni_java_type = "void"
         my.container.jni_jni_type = "void"
+        my.container.jni_jffi_type = "VOID"
 
     elsif my.container.type = "anything" \
     |     my.container.type = "sockish" \
@@ -34,64 +37,84 @@ function resolve_container (container)
     |     my.container.type = "file_size"
         my.container.jni_java_type = "long"
         my.container.jni_jni_type = "jlong"
+        my.container.jni_jffi_type = "SLONG"
 
     elsif my.container.type = "boolean"
         my.container.jni_java_type = "boolean"
         my.container.jni_jni_type = "jboolean"
+        my.container.jni_jffi_type = "SINT"
 
     elsif my.container.type = "byte"
         my.container.jni_java_type = "byte"
         my.container.jni_jni_type = "jbyte"
+        my.container.jni_jffi_type = "SBYTE"
 
     elsif my.container.type = "char"
         my.container.jni_java_type = "char"
         my.container.jni_jni_type = "jchar"
+        my.container.jni_jffi_type = "SCHAR"
 
     elsif my.container.type = "integer"
         my.container.jni_java_type = "int"
         my.container.jni_jni_type = "jint"
+        my.container.jni_jffi_type = "SINT"
 
     elsif my.container.type = "number"
         if my.container.size ?= "1"
             my.container.jni_java_type = "byte"
             my.container.jni_jni_type = "jbyte"
+            my.container.jni_jffi_type = "SBYTE"
         elsif my.container.size = 2
             my.container.jni_java_type = "short"
             my.container.jni_jni_type = "jshort"
+            my.container.jni_jffi_type = "SSHORT"
         elsif my.container.size = 4
             my.container.jni_java_type = "int"
             my.container.jni_jni_type = "jint"
+            my.container.jni_jffi_type = "SINT"
         elsif my.container.size = 8
             my.container.jni_java_type = "long"
             my.container.jni_jni_type = "jlong"
+            my.container.jni_jffi_type = "SLONG"
         endif
 
     elsif my.container.type = "real"
         if my.container.size ?= "4"
             my.container.jni_java_type = "float"
             my.container.jni_jni_type = "jfloat"
+            my.container.jni_jffi_type = "FLOAT"
         elsif my.container.size ?= "8"
             my.container.jni_java_type = "double"
             my.container.jni_jni_type = "jdouble"
+            my.container.jni_jffi_type = "DOUBLE"
         endif
 
     elsif my.container.type = "buffer"
         if my.container.by_reference
             return 1        #   Skip methods that do this
         endif
+        if my.entity_type = 1
+            return 1        #   Skip methods that do this
+        endif
         my.container.jni_java_type = "byte []"
         my.container.jni_jni_type = "jbyteArray"
+        my.container.jni_jffi_type = "POINTER"
 
     elsif my.container.type = "string"
         if my.container.by_reference
             return 1        #   Skip methods that do this
         endif
+        if my.return_type = 1 & my.entity_type = 1 & (defined (my.container.fresh) = 0 | my.container.fresh = 0)
+            return 1        #   Skip methods that do this
+        endif
         my.container.jni_java_type = "String"
         my.container.jni_jni_type = "jstring"
+        my.container.jni_jffi_type = "POINTER"
 
     elsif my.container.type = "format"
         my.container.jni_java_type = "String"
         my.container.jni_jni_type = "jstring"
+        my.container.jni_jffi_type = "POINTER"
 
     elsif count (project.class, class.c_name = my.container.type & !defined (class.api))
         return 1        #   Refers to class that has no API model
@@ -106,9 +129,14 @@ function resolve_container (container)
         my.container.jni_shim_type = "long"
         my.container.jni_jni_type = "jlong"
         my.container.jni_is_class = 1
+        my.container.jni_jffi_type = "POINTER"
 
     elsif my.container.callback ?= 1
-        return 1        #   Don't implement callbacks yet
+        my.container.jni_java_type = "_$(my.container.type:pascal)"
+        my.container.jni_mapping = "$(my.container.name:camel).getAddress()"
+        my.container.jni_shim_type = "long"
+        my.container.jni_jni_type = "jlong"
+        my.container.jni_jffi_type = "POINTER"
 
     elsif my.container.type = "va_list" \
     |     my.container.type = "FILE" \
@@ -121,11 +149,12 @@ function resolve_container (container)
 
     #   By default, shim gets Java type
     my.container.jni_shim_type ?= my.container.jni_java_type
+    my.container.jni_jffi_type = "com.kenai.jffi.Type.$(my.container.jni_jffi_type:)"
 
     return 0            #   Seems to be OK
 endfunction
 
-function resolve_method (method)
+function resolve_entity (method, entity_type)
     my.method.okay = 1
 
     if my.method.name = "clone" \
@@ -152,77 +181,151 @@ function resolve_method (method)
         my.method.jni_shim_signature_c = ""
         my.method.jni_shim_invocation_java = ""
         my.method.jni_native_invocation_c = ""
-        comma = ""
+        my.method.jni_native_signature_c = ""
+        my.method.jni_jffi_signature = ""
+        my.method.jni_jffi_invocation = ""
     else
         my.method.static = ""
         my.method.jni_shim_signature_java = "long self"
         my.method.jni_shim_signature_c = "jlong self"
         my.method.jni_shim_invocation_java = "self"
         my.method.jni_native_invocation_c = "($(class.c_name)_t *) (intptr_t) self"
-        comma = ", "
+        my.method.jni_native_signature_c = ""
+        my.method.jni_jffi_signature = ""
+        my.method.jni_jffi_invocation = ""
     endif
 
     for my.method.argument
-        if resolve_container (argument) = 1
+        if resolve_container (argument, my.entity_type, 0) = 1
             my.method.okay = 0
-            #echo "Skipping $(class.name).$(my.method.name) - can't deal with argument type $(argument.type)"
+            echo "Skipping $(class.name).$(my.method.name) - can't deal with argument type $(argument.type)"
             last
         endif
 
         if variadic = 1
             if va_start <> "format"
+                # I think this is where the Zloop constructor breaks
                 jni_method_signature += " []"
                 jni_shim_invocation_java += " [0]"
             endif
         elsif jni_self_p = 1
-            jni_shim_signature_java += "$(comma)long self"
-            jni_shim_invocation_java += "$(comma)self"
-            jni_shim_signature_c += "$(comma)jlong self"
-            jni_native_invocation_c += "$(comma)($(argument.c_type)) &self"
+            if jni_shim_signature_java <> ""
+                jni_shim_signature_java += ", "
+            endif
+            if jni_shim_invocation_java <> ""
+                jni_shim_invocation_java += ", "
+            endif
+            if jni_shim_signature_c <> ""
+                jni_shim_signature_c += ", "
+            endif
+            if jni_native_invocation_c <> ""
+                jni_native_invocation_c += ", "
+            endif
+            if jni_native_signature_c <> ""
+                jni_native_signature_c += ", "
+            endif
+            if jni_jffi_signature <> ""
+                jni_jffi_signature += ", "
+            endif
+            if jni_jffi_invocation <> ""
+                jni_jffi_invocation += ", "
+            endif
+            jni_shim_signature_java += "long self"
+            jni_shim_invocation_java += "self"
+            jni_shim_signature_c += "jlong self"
+            jni_native_invocation_c += "($(argument.c_type:)) &self"
+            jni_native_signature_c += "$(argument.c_type:) self"
+            jni_jffi_signature += "$(jni_jffi_type:)"
+            jni_jffi_invocation += "new $(argument.jni_java_type:)(buffer.getAddress($(index() - 1)))"
             my.method.return_self_p = 1
             my.method->return.jni_shim_type = "long"
         else
             if jni_method_signature <> ""
                 jni_method_signature += ", "
             endif
+            if jni_shim_signature_java <> ""
+                jni_shim_signature_java += ", "
+            endif
+            if jni_shim_invocation_java <> ""
+                jni_shim_invocation_java += ", "
+            endif
+            if jni_shim_signature_c <> ""
+                jni_shim_signature_c += ", "
+            endif
+            if jni_native_invocation_c <> ""
+                jni_native_invocation_c += ", "
+            endif
+            if jni_native_signature_c <> ""
+                jni_native_signature_c += ", "
+            endif
+            if jni_jffi_signature <> ""
+                jni_jffi_signature += ", "
+            endif
+            if jni_jffi_invocation <> ""
+                jni_jffi_invocation += ", "
+            endif
             jni_method_signature += "$(argument.jni_java_type:) $(argument.name:camel)"
 
-            jni_shim_signature_java += "$(comma)$(argument.jni_shim_type:) $(argument.name:camel)"
-            jni_shim_signature_c += "$(comma)$(argument.jni_jni_type:) $(argument.c_name)"
-            jni_shim_invocation_java += "$(comma)$(argument.jni_mapping:)"
+            jni_shim_signature_java += "$(argument.jni_shim_type:) $(argument.name:camel)"
+            jni_shim_signature_c += "$(argument.jni_jni_type:) $(argument.c_name)"
+            jni_native_signature_c += "$(argument.c_type:) $(argument.c_name)"
+            jni_shim_invocation_java += "$(argument.jni_mapping:)"
 
             if type = "format"
-                jni_native_invocation_c += "$(comma)\"%s\", $(argument.c_name)_"
+                jni_native_invocation_c += "\"%s\", $(argument.c_name)_"
             elsif type = "string" | type = "buffer"
-                jni_native_invocation_c += "$(comma)$(argument.c_name)_"
+                jni_native_invocation_c += "$(argument.c_name)_"
             elsif by_reference = 1
-                jni_native_invocation_c += "$(comma)($(argument.c_type)) (intptr_t) &$(argument.c_name)"
+                jni_native_invocation_c += "($(argument.c_type:)) (intptr_t) &$(argument.c_name)"
             elsif jni_is_class = 1 | type = "anything" | type = "sockish"
-                jni_native_invocation_c += "$(comma)($(argument.c_type)) (intptr_t) $(argument.c_name)"
+                jni_native_invocation_c += "($(argument.c_type:)) (intptr_t) $(argument.c_name)"
+            elsif callback ?= 1
+                jni_native_invocation_c += "($(argument.c_type:) *) (intptr_t) $(argument.c_name)"
             else
-                jni_native_invocation_c += "$(comma)($(argument.c_type)) $(argument.c_name)"
+                jni_native_invocation_c += "($(argument.c_type:)) $(argument.c_name)"
+            endif
+            jni_jffi_signature += "$(jni_jffi_type:)"
+            if jni_is_class = 1
+                jni_jffi_invocation += "new $(argument.jni_java_type:)(buffer.getAddress($(index() - 1)))"
+            elsif type = "string" | type = "format"
+                jni_jffi_invocation += "java.nio.charset.Charset.defaultCharset().decode(java.nio.ByteBuffer.wrap(com.kenai.jffi.MemoryIO.getInstance().getZeroTerminatedByteArray(buffer.getAddress($(index() - 1))))).toString()"
+            else
+                jni_jffi_invocation += "buffer.get$(argument.jni_java_type:pascal)($(index() - 1))"
             endif
         endif
         comma = ", "
     endfor
 
+
     for my.method.return
-        if resolve_container (return)
+        if resolve_container (return, my.entity_type, 1)
             my.method.okay = 0
-            #echo "Skipping $(class.name).$(my.method.name) - can't deal with return type $(return.type:)"
+            echo "Skipping $(class.name).$(my.method.name) - can't deal with return type $(return.type:)"
         else
             #   returned buffers need a size attribute
             if type = "buffer" & !defined (return.size)
                 my.method.okay = 0
-                #echo "Skipping $(class.name).$(my.method.name) - can't return unsized fresh buffer"
+                echo "Skipping $(class.name).$(my.method.name) - can't return unsized fresh buffer"
             endif
         endif
     endfor
 endfunction
 
+function resolve_method (method)
+    resolve_entity(my.method, 0)
+endfunction
+
+function resolve_callback (callback)
+    resolve_entity(my.callback, 1)
+endfunction
+
+
 function resolve_class (class)
     if defined (my.class.api) & !my.class.private
         my.class.okay = 1
+        for callback_type
+            resolve_callback (callback_type)
+        endfor
         for constructor
             resolve_method (constructor)
             if index () = 1 & constructor.okay = 0
