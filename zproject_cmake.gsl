@@ -276,20 +276,20 @@ if (NOT $(PROJECT.PREFIX)_BUILD_SHARED AND NOT $(PROJECT.PREFIX)_BUILD_STATIC)
   message(FATAL_ERROR "Neither static nor shared library build enabled")
 endif()
 
-IF (NOT MSVC)
+IF (NOT WIN32)
   # avoid building everything twice for shared + static
   # only on *nix, as Windows needs different preprocessor defines in static builds
   add_library ($(project.linkname)_objects OBJECT ${$(project.linkname)_sources})
   set_property(TARGET $(project.linkname)_objects PROPERTY POSITION_INDEPENDENT_CODE ON)
-ENDIF (NOT MSVC)
+ENDIF (NOT WIN32)
 
 # shared
 if ($(PROJECT.PREFIX)_BUILD_SHARED)
-  IF (MSVC)
+  IF (WIN32)
     add_library($(project.linkname) SHARED ${$(project.linkname)_sources})
-  ELSE (MSVC)
+  ELSE (WIN32)
     add_library($(project.linkname) SHARED $<TARGET_OBJECTS:$(project.linkname)_objects>)
-  ENDIF (MSVC)
+  ENDIF (WIN32)
 
   set_target_properties ($(project.linkname) PROPERTIES
     PUBLIC_HEADER "${public_headers}"
@@ -322,11 +322,11 @@ endif()
 
 # static
 if ($(PROJECT.PREFIX)_BUILD_STATIC)
-  IF (MSVC)
+  IF (WIN32)
     add_library($(project.linkname)-static STATIC ${$(project.linkname)_sources})
-  ELSE (MSVC)
+  ELSE (WIN32)
     add_library($(project.linkname)-static STATIC $<TARGET_OBJECTS:$(project.linkname)_objects>)
-  ENDIF (MSVC)
+  ENDIF (WIN32)
 
   set_target_properties($(project.linkname)-static PROPERTIES
     PUBLIC_HEADER "${public_headers}"
