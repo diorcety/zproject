@@ -163,17 +163,17 @@ task wrapper(type: Wrapper) {
 
 task generateJniHeaders(type: Exec, dependsOn: 'classes') {
     def classpath = sourceSets.main.output.classesDir
-    def appclasspath = configurations.runtime.files*.getAbsolutePath().join(":")
+    def appclasspath = configurations.runtime.files*.getAbsolutePath().join(File.pathSeparator)
     def nativeIncludes = "src/native/include"
     def jniClasses = [
 .   for project.class where class.okay
             '$(namespace).$(name:pascal)'$(last ()?? ""? ",")
 .   endfor
     ]
-    commandLine("javah", "-d", "$nativeIncludes", "-classpath", "$classpath:$appclasspath", *jniClasses)
+    commandLine("javah", "-d", "$nativeIncludes", "-classpath", "$classpath" + File.pathSeparator + "$appclasspath", *jniClasses)
 }
 tasks.withType(Test) {
-    systemProperty "java.library.path", "/usr/lib:/usr/local/lib:$projectDir"
+    systemProperty "java.library.path", "/usr/lib" + File.pathSeparator + "/usr/local/lib" + File.pathSeparator + "$projectDir"
 }
 task initCMake(type: Exec, dependsOn: 'generateJniHeaders') {
     commandLine "cmake", "."
