@@ -179,7 +179,7 @@ task initCMake(type: Exec, dependsOn: 'generateJniHeaders') {
     commandLine "cmake", "."
 }
 task buildNative(type: Exec, dependsOn: 'initCMake') {
-    commandLine "make"
+    commandLine "cmake", "--build", "."
 }
 jar.dependsOn buildNative
 test.dependsOn buildNative
