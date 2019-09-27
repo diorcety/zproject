@@ -207,6 +207,7 @@ function resolve_entity (method, entity_type)
                 # I think this is where the Zloop constructor breaks
                 jni_method_signature += " []"
                 jni_shim_invocation_java += " [0]"
+                jni_native_invocation_c += ", NULL"
             endif
         elsif jni_self_p = 1
             if jni_shim_signature_java <> ""
