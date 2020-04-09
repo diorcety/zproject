@@ -12,7 +12,6 @@ enable_language(C)
 enable_testing()
 
 set(SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 # Select flags
 if(MSVC)
     SET(CMAKE_C_FLAGS_RELEASE "/O2")
