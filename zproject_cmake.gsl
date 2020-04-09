@@ -275,7 +275,7 @@ source_group("Source Files" FILES ${$(project.linkname)_sources})
 
 
 option($(PROJECT.PREFIX)_BUILD_SHARED "Whether or not to build the shared object" ON)
-option($(PROJECT.PREFIX)_BUILD_STATIC "Whether or not to build the static archive" ON)
+option($(PROJECT.PREFIX)_BUILD_STATIC "Whether or not to build the static archive" OFF)
 
 if (NOT $(PROJECT.PREFIX)_BUILD_SHARED AND NOT $(PROJECT.PREFIX)_BUILD_STATIC)
   message(FATAL_ERROR "Neither static nor shared library build enabled")
