@@ -749,15 +749,6 @@ public class $(my.class.name:pascal) \
 implements AutoCloseable\
 .   endif
 {
-    static {
-        try {
-            System.loadLibrary ("$(project.prefix:c)jni");
-        }
-        catch (Exception e) {
-            System.exit (-1);
-        }
-    }
-
 .   for callback_type where okay
     public interface $(class.name:pascal)$(name:pascal) {
         $(->return.jni_java_type:)\
