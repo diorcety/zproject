@@ -12,12 +12,6 @@ enable_language(C)
 enable_testing()
 
 set(SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-# Select flags
-if(MSVC)
-    SET(CMAKE_C_FLAGS_RELEASE "/O2")
-else()
-    SET(CMAKE_C_FLAGS_RELEASE "-O3")
-endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/builds/cmake/Modules)
 
